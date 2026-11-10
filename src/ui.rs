@@ -32,7 +32,10 @@ enum Ic {
 /// Round transport button with a vector icon (font glyphs sit at uneven heights).
 fn transport(ui: &mut egui::Ui, ic: Ic, d: f32, primary: bool, enabled: bool, tip: &str) -> egui::Response {
     use egui::{pos2, vec2, Shape};
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), if enabled { Sense::click() } else { Sense::hover() });
+    // every transport button gets the same row height, so all icons share one centre line
+    // (egui centres each item on the row height *so far*, which differs before/after the big button)
+    const ROW_H: f32 = 46.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(d, ROW_H.max(d)), if enabled { Sense::click() } else { Sense::hover() });
     let c = rect.center();
     let hovered = enabled && resp.hovered();
     let p = ui.painter();
