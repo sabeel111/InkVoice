@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>InkVoice — books that read themselves</title>
+  <meta name="description" content="InkVoice turns your EPUB and PDF books into audiobooks on your own computer. Free, private, and light. For Windows and Linux.">
+  <meta property="og:title" content="InkVoice — books that read themselves">
+  <meta property="og:description" content="Turn your EPUB and PDF books into audiobooks on your own computer. Free, private, and light.">
+  <meta property="og:image" content="media/og.jpg">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#15120e">
+  <link rel="icon" href="media/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="media/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav wrap">
+    <a class="brand" href="./" aria-label="InkVoice home">
+      <img src="media/icon.svg" alt="" width="30" height="30">
+      <span>InkVoice</span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#faq">Questions</a>
+      <a href="https://github.com/sabeel111/InkVoice">Source code</a>
+      <a class="nav-cta" href="#download">Download</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- Hero: the product's core moment, live -->
+    <section class="hero wrap">
+      <h1>Books that read themselves.</h1>
+
+      <figure class="demo" aria-labelledby="demo-caption">
+        <blockquote class="demo-text" id="demo-text" lang="en">
+          It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.
+        </blockquote>
+        <figcaption class="demo-bar" id="demo-caption">
+          <button class="listen" id="listen" type="button" aria-pressed="false">
+            <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+            <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+            <span class="listen-label">Listen</span>
+          </button>
+          <span class="demo-note">The opening line of <cite>Pride and Prejudice</cite>, read by InkVoice on an ordinary laptop.</span>
+        </figcaption>
+        <audio id="demo-audio" preload="none">
+          <source src="media/hero.opus" type="audio/ogg; codecs=opus">
+          <source src="media/hero.m4a" type="audio/mp4">
+        </audio>
+      </figure>
+
+      <div class="pitch">
+        <p class="lede">InkVoice turns your EPUB and PDF books into audiobooks, right on your own computer. No account, no cloud, no subscription.</p>
+        <div class="get">
+          <a class="btn btn-primary" id="cta" href="#download">Download InkVoice</a>
+          <p class="get-meta"><span id="cta-meta">Free for Windows and Linux</span>. <a href="#download">Other ways to install</a></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- The app -->
+    <section class="shot wrap" aria-label="The InkVoice reader">
+      <figure>
+        <img src="media/reader_playing.webp" width="1280" height="800" loading="lazy"
+             alt="The InkVoice reader: Pride and Prejudice, chapter one, with the spoken word highlighted and the player at the bottom.">
+        <figcaption>The word being spoken stays highlighted, and pages turn by themselves.</figcaption>
+      </figure>
+    </section>
+
+    <!-- What it does: a plain list, not cards -->
+    <section class="features wrap" id="features">
+      <h2>Everything a listening reader needs</h2>
+      <dl>
+        <div><dt>Starts in seconds</dt><dd>Press play and the first sentence is ready almost at once. The rest of the chapter is prepared while you listen.</dd></div>
+        <div><dt>Read along</dt><dd>Follow the highlighted word, or click any word to listen from there. Switch between reading and listening whenever you like.</dd></div>
+        <div><dt>Your pace</dt><dd>Slow down or speed up to 2.5 times without the chipmunk effect. Voices keep their natural pitch.</dd></div>
+        <div><dt>A voice you like</dt><dd>More than 50 English voices from three engines, American and British. Pick one, or keep a few and switch between them.</dd></div>
+        <div><dt>Private by design</dt><dd>Your books never leave your computer. There is no account and nothing to track, and it works offline once a voice is installed.</dd></div>
+        <div><dt>Light on your machine</dt><dd>A 5 MB app with a warm dark theme made for evening reading. Voices run on an ordinary processor; no graphics card needed.</dd></div>
+      </dl>
+    </section>
+
+    <!-- A real sequence, so numbered -->
+    <section class="steps wrap" aria-labelledby="steps-title">
+      <div class="steps-copy">
+        <h2 id="steps-title">From book to audiobook</h2>
+        <ol>
+          <li><p><strong>Install InkVoice.</strong> It takes a few seconds and needs no administrator rights.</p></li>
+          <li><p><strong>Pick a voice.</strong> InkVoice downloads it for you. The first voice needs about 400 MB; others are smaller.</p></li>
+          <li><p><strong>Import a book and press play.</strong> EPUB and PDF both work. Your place is saved in every book.</p></li>
+        </ol>
+      </div>
+      <img src="media/library.webp" width="1280" height="800" loading="lazy"
+           alt="The InkVoice library with Alice in Wonderland, Frankenstein, Moby Dick and Pride and Prejudice.">
+    </section>
+
+    <!-- Downloads -->
+    <section class="download wrap" id="download">
+      <h2>Download</h2>
+      <div class="platforms">
+        <article class="platform" id="dl-windows">
+          <h3>Windows</h3>
+          <p>Windows 10 and 11, 64-bit. Installs for your user account only.</p>
+          <a class="btn btn-primary" href="https://github.com/sabeel111/InkVoice/releases/latest/download/InkVoice-Setup-x86_64.exe">Download the installer</a>
+          <p class="small"><a href="https://github.com/sabeel111/InkVoice/releases/latest/download/InkVoice-windows-x86_64-portable.zip">Portable version</a> (no installation, zip file)</p>
+        </article>
+        <article class="platform" id="dl-linux">
+          <h3>Linux</h3>
+          <p>64-bit Intel and AMD. Paste this into a terminal:</p>
+          <div class="cmd">
+            <code id="linux-cmd">curl -fsSL https://raw.githubusercontent.com/sabeel111/InkVoice/main/packaging/linux/get.sh | sh</code>
+            <button class="copy" type="button" data-copy="linux-cmd">Copy</button>
+          </div>
+          <p class="small">Or download the <a href="https://github.com/sabeel111/InkVoice/releases/latest/download/inkvoice-linux-x86_64.tar.gz">.tar.gz archive</a> and run <code>./install.sh</code>.</p>
+        </article>
+      </div>
+      <p class="also">macOS isn’t supported yet. You can <a href="https://github.com/sabeel111/InkVoice#build-from-source">build InkVoice from source</a> or follow the project on GitHub.</p>
+    </section>
+
+    <!-- FAQ -->
+    <section class="faq wrap" id="faq">
+      <h2>Questions</h2>
+      <details>
+        <summary>Is InkVoice free?</summary>
+        <p>Yes. InkVoice is open source under the MIT license, with no ads and no paid tier. The voices are free too; Underdog Woof may only be used for non-commercial purposes.</p>
+      </details>
+      <details>
+        <summary>Windows says the app is from an unknown publisher. Is it safe?</summary>
+        <p>The warning appears because InkVoice isn’t code-signed yet, which costs money for a free project. Choose <em>More info</em>, then <em>Run anyway</em>. The installer is built in public from the <a href="https://github.com/sabeel111/InkVoice">source code on GitHub</a>.</p>
+      </details>
+      <details>
+        <summary>How much disk space do the voices need?</summary>
+        <p>The first voice also installs a private copy of Python that InkVoice uses behind the scenes, about 400 MB in total. Each extra voice adds 40 to 125 MB. You can remove voices in Settings at any time.</p>
+      </details>
+      <details>
+        <summary>Do I need a powerful computer or a graphics card?</summary>
+        <p>No. The voices run on an ordinary processor, faster than they speak, so playback starts within seconds and keeps up while you listen.</p>
+      </details>
+      <details>
+        <summary>Which books can it read?</summary>
+        <p>EPUB books and PDFs that contain text. Scanned PDFs (pictures of pages) and books locked with DRM can’t be read.</p>
+      </details>
+      <details>
+        <summary>Does it send my books anywhere?</summary>
+        <p>No. Books, audio and settings stay on your computer. InkVoice only goes online to download the voices you choose.</p>
+      </details>
+      <details>
+        <summary>How do I uninstall it?</summary>
+        <p>On Windows, remove it in <em>Settings, Apps</em> like any other program. On Linux, run <code>./install.sh --uninstall</code> from the downloaded archive. Your books and voices are kept in their own folder, so you can keep them or delete them.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot wrap">
+    <p><img src="media/icon.svg" alt="" width="20" height="20"> InkVoice is open source. <a href="https://github.com/sabeel111/InkVoice">See the code on GitHub</a>.</p>
+    <p class="small">Sample text from <cite>Pride and Prejudice</cite> by Jane Austen, in the public domain. Voices: Kokoro and Phonon (Apache-2.0), Underdog Woof (non-commercial).</p>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

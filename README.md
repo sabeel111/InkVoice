@@ -1,5 +1,7 @@
 # InkVoice
 
+**[Website & downloads](https://sabeel111.github.io/InkVoice/)**
+
 A tiny, dark-mode ebook reader that turns your EPUB and PDF books into audiobooks — with small
 text-to-speech models running entirely on your own machine. No cloud, no Electron, no PyTorch.
 
@@ -98,6 +100,10 @@ pauses detected in the audio.
 
 Data lives in `~/.local/share/inkvoice` (Windows: `%LOCALAPPDATA%\inkvoice`) — books, audio, voice engines —
 and settings in `~/.config/inkvoice/config.json` (Windows: `%APPDATA%\inkvoice`).
+
+## License
+
+InkVoice is released under the [MIT License](LICENSE).
 
 ## Model licenses
 

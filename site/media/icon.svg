@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22201f"/><stop offset="1" stop-color="#121214"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <!-- open book -->
+  <path d="M256 186 C214 160 158 154 104 166 L104 368 C158 356 214 362 256 388 Z" fill="#d6d1c4"/>
+  <path d="M256 186 C298 160 354 154 408 166 L408 368 C354 356 298 362 256 388 Z" fill="#ece7da"/>
+  <path d="M256 186 L256 388" stroke="#9a948a" stroke-width="6"/>
+  <!-- text lines -->
+  <g fill="none" stroke="#a59e92" stroke-width="7" stroke-linecap="round">
+    <path d="M134 214 C164 208 196 210 226 220"/><path d="M134 246 C164 240 196 242 226 252"/>
+    <path d="M134 278 C164 272 196 274 226 284"/><path d="M134 310 C160 305 186 306 210 314"/>
+  </g>
+  <!-- sound waves rising from the right page -->
+  <g fill="none" stroke="#dea658" stroke-linecap="round">
+    <path d="M318 286 C346 266 346 214 318 194" stroke-width="16"/>
+    <path d="M346 312 C390 278 390 202 346 168" stroke-width="16" opacity="0.75"/>
+  </g>
+  <circle cx="292" cy="240" r="15" fill="#dea658"/>
+</svg>

@@ -171,6 +171,17 @@ fn import_epub(path: &Path, stem: &str) -> Result<(Book, Option<Vec<u8>>)> {
     let title = doc.mdata("title").map(|m| m.value.trim().to_string()).unwrap_or_else(|| stem.to_string());
     let author = doc.mdata("creator").map(|m| m.value.trim().to_string()).unwrap_or_default();
     let cover = doc.get_cover().map(|(bytes, _mime)| bytes);
+    // Prefer the book's own table of contents (real chapter titles, and chapters that share a
+    // file are split at their anchors); fall back to one chapter per file.
+    let mut chapters = chapters_from_toc(&mut doc);
+    if chapters.len() < 2 {
+        chapters = chapters_from_spine(&mut doc);
+    }
+    Ok((Book { id: String::new(), title, author, source: String::new(), chapters, pos: (0, 0), opened: 0 }, cover))
+}
+
+/// One chapter per spine file, titled from its first line.
+fn chapters_from_spine(doc: &mut epub::doc::EpubDoc<std::io::BufReader<std::fs::File>>) -> Vec<Chapter> {
     let mut chapters = Vec::new();
     for i in 0..doc.spine.len() {
         doc.set_current_chapter(i);
@@ -179,20 +190,100 @@ fn import_epub(path: &Path, stem: &str) -> Result<(Book, Option<Vec<u8>>)> {
         if text.chars().count() < 80 {
             continue;
         }
-        // first real line (skip picture placeholders such as "image")
-        let first = text
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty() && !l.eq_ignore_ascii_case("image") && !l.eq_ignore_ascii_case("[image]"))
-            .unwrap_or("");
-        let title = if !first.is_empty() && first.chars().count() <= 70 {
-            first.to_string()
-        } else {
-            format!("Section {}", chapters.len() + 1)
-        };
+        let title = title_from_text(&text).unwrap_or_else(|| format!("Section {}", chapters.len() + 1));
         chapters.push(Chapter { title, pages: paginate(&text) });
     }
-    Ok((Book { id: String::new(), title, author, source: String::new(), chapters, pos: (0, 0), opened: 0 }, cover))
+    chapters
+}
+
+fn title_from_text(text: &str) -> Option<String> {
+    // first real line (skip picture placeholders such as "image")
+    let first = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.eq_ignore_ascii_case("image") && !l.eq_ignore_ascii_case("[image]"))?;
+    (first.chars().count() <= 70).then(|| first.to_string())
+}
+
+fn chapters_from_toc(doc: &mut epub::doc::EpubDoc<std::io::BufReader<std::fs::File>>) -> Vec<Chapter> {
+    // flatten the TOC: (label, file, fragment)
+    fn flat(n: &[epub::doc::NavPoint], out: &mut Vec<(String, PathBuf, Option<String>)>) {
+        for p in n {
+            let s = p.content.to_string_lossy().into_owned();
+            let (file, frag) = match s.split_once('#') {
+                Some((f, fr)) => (PathBuf::from(f), Some(fr.to_string())),
+                None => (PathBuf::from(&s), None),
+            };
+            let label = p.label.split_whitespace().collect::<Vec<_>>().join(" ");
+            out.push((label, file, frag));
+            flat(&p.children, out);
+        }
+    }
+    let mut toc = Vec::new();
+    let nav = doc.toc.clone();
+    flat(&nav, &mut toc);
+    if toc.len() < 2 {
+        return Vec::new();
+    }
+
+    // (title, text) in reading order; text before a file's first anchor continues the previous chapter
+    let mut parts: Vec<(String, String)> = Vec::new();
+    let spine: Vec<String> = doc.spine.iter().map(|s| s.idref.clone()).collect();
+    for idref in spine {
+        let Some(file) = doc.resources.get(&idref).map(|r| r.path.clone()) else { continue };
+        let Some(html) = doc.get_resource_str_by_path(&file) else { continue };
+        let mut cuts: Vec<(usize, String)> = toc
+            .iter()
+            .filter(|(_, f, _)| *f == file)
+            .filter_map(|(label, _, frag)| match frag {
+                None => Some((0, label.clone())),
+                Some(fr) => anchor_pos(&html, fr).map(|p| (p, label.clone())),
+            })
+            .collect();
+        cuts.sort_by_key(|c| c.0);
+        cuts.dedup_by_key(|c| c.0);
+        let mut bounds: Vec<usize> = cuts.iter().map(|c| c.0).collect();
+        bounds.push(html.len());
+        let head_end = bounds.first().copied().unwrap_or(html.len());
+        // text before the first chapter start in this file
+        if head_end > 0 {
+            let text = html_to_text(&html[..head_end]);
+            if !text.trim().is_empty() {
+                match parts.last_mut() {
+                    Some(last) => {
+                        last.1.push_str("\n\n");
+                        last.1.push_str(&text);
+                    }
+                    None => parts.push((title_from_text(&text).unwrap_or_else(|| "Beginning".into()), text)),
+                }
+            }
+        }
+        for (k, (start, label)) in cuts.iter().enumerate() {
+            let text = html_to_text(&html[*start..bounds[k + 1]]);
+            parts.push((label.clone(), text));
+        }
+    }
+    parts
+        .into_iter()
+        .filter(|(_, t)| t.trim().chars().count() >= 20)
+        .map(|(title, text)| Chapter {
+            title: if title.is_empty() { "Untitled".into() } else { title.chars().take(80).collect() },
+            pages: paginate(text.trim()),
+        })
+        .collect()
+}
+
+/// Byte offset of the tag carrying `id="frag"` (start of the chapter inside a shared file).
+fn anchor_pos(html: &str, frag: &str) -> Option<usize> {
+    for q in ['"', '\''] {
+        for attr in ["id=", "name="] {
+            let needle = format!("{attr}{q}{frag}{q}");
+            if let Some(i) = html.find(&needle) {
+                return html[..i].rfind('<');
+            }
+        }
+    }
+    None
 }
 
 fn html_to_text(html: &str) -> String {

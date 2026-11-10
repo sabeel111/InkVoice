@@ -143,7 +143,7 @@ impl Default for Config {
             prefetch: true,
             volume: 1.0,
             speed: 1.0,
-            stream_buffer: 10.0,
+            stream_buffer: 4.0,
             advanced: BTreeMap::new(),
         }
     }

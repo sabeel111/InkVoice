@@ -187,6 +187,17 @@ def synthesize(req_id, text, out, synth_piece, sr, args, stream=False, start_cha
         for i, (idx, _) in enumerate(pieces):
             if words[idx[0]][0] <= start_char:
                 k = i
+    if stream:
+        # start fast: speak the first sentence or two on their own, then continue in whole paragraphs
+        idx, end_para = pieces[k]
+        size, cut = 0, None
+        for n, wi in enumerate(idx[:-1]):
+            size += len(words[wi][2]) + 1
+            if size >= 90 and SENT_END_WORD.search(words[wi][2]):
+                cut = n + 1
+                break
+        if cut and size <= 220:
+            pieces[k:k + 1] = [(idx[:cut], False), (idx[cut:], end_para)]
     order = list(range(k, len(pieces))) + list(range(0, k))
     texts = [" ".join(words[i][2] for i in idx) for idx, _ in pieces]
     total = sum(len(t) for t in texts)

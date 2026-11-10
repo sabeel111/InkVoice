@@ -1077,15 +1077,18 @@ mod screenshots {
             h.render().unwrap().save(format!("{dir}/{name}.png")).unwrap();
         };
         let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| App::new(cc, None));
-        let id = h.state().lib[0].id.clone();
+        // SHOT_BOOK picks a book by title, SHOT_CH a chapter with at least 4 pages
+        let want = std::env::var("SHOT_BOOK").unwrap_or_default().to_lowercase();
+        let id = h.state().lib.iter().find(|b| b.title.to_lowercase().contains(&want)).unwrap_or(&h.state().lib[0]).id.clone();
+        let shot_ch: usize = std::env::var("SHOT_CH").ok().and_then(|c| c.parse().ok()).unwrap_or(4);
         h.state_mut().sel = Some(id.clone());
         save(&mut h, "1_library");
 
         let s = h.state_mut();
         s.open_reader(&id);
         s.cfg.page_mode = true;
-        s.go(4, 0);
-        s.play_unit(Unit { book: id.clone(), ch: 4, pg: Some(0) }, None);
+        s.go(shot_ch, 0);
+        s.play_unit(Unit { book: id.clone(), ch: shot_ch, pg: Some(0) }, None);
         if let Some(p) = &mut s.player {
             p.seek(14.0);
         }
@@ -1110,9 +1113,10 @@ mod screenshots {
         s.pending.clear();
         s.job = None;
         s.cfg.speed = 1.25;
-        s.go(4, 3);
+        let stream_pg = s.book(&id).map_or(3, |b| b.chapters[shot_ch].pages.len().saturating_sub(1).clamp(1, 3));
+        s.go(shot_ch, stream_pg);
         let t0 = Instant::now();
-        s.play_unit(Unit { book: id.clone(), ch: 4, pg: Some(3) }, None);
+        s.play_unit(Unit { book: id.clone(), ch: shot_ch, pg: Some(stream_pg) }, None);
         let mut started = None;
         while t0.elapsed().as_secs() < 90 {
             h.run_steps(1);

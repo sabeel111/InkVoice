@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Lightweight dark-mode ebook reader that turns EPUB/PDF books into audiobooks with on-device voices"
 repository = "https://github.com/sabeel111/InkVoice"
+homepage = "https://sabeel111.github.io/InkVoice/"
+license = "MIT"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "persistence"] }
