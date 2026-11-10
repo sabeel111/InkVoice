@@ -1,5 +1,7 @@
+#![cfg_attr(windows, windows_subsystem = "windows")] // no console window on Windows
 mod book;
 mod config;
+mod installer;
 mod player;
 mod theme;
 mod tts;
@@ -95,6 +97,12 @@ pub struct App {
     /// voice preview being generated
     preview: Option<PathBuf>,
     feed: Option<Feed>,
+    /// voice engine being installed + its current step / progress
+    install: Option<installer::Install>,
+    install_step: String,
+    install_progress: Option<f32>,
+    installed: HashSet<String>,
+    confirm_uninstall: Option<String>,
 }
 
 impl App {
@@ -136,9 +144,22 @@ impl App {
             last_word: None,
             preview: None,
             feed: None,
+            install: None,
+            install_step: String::new(),
+            install_progress: None,
+            installed: installer::SPECS.iter().filter(|s| installer::is_installed(s.name)).map(|s| s.name.to_string()).collect(),
+            confirm_uninstall: None,
             cfg,
         };
         app.sel = app.lib.first().map(|b| b.id.clone());
+        // use an installed engine if the selected one isn't installed
+        if !app.installed.contains(&app.cfg.engine) {
+            if let Some(e) = installer::SPECS.iter().find(|s| app.installed.contains(s.name)) {
+                app.cfg.engine = e.name.to_string();
+                app.cfg.save();
+                app.tts = tts::Tts::start(app.cfg.worker_command(), app.ctx.clone());
+            }
+        }
         app.refresh_lib_audio();
         if app.player.is_none() {
             app.notify_err("No audio output device found");
@@ -335,6 +356,9 @@ impl App {
 
     /// Queue audio for a unit unless it exists or is queued. Returns its path.
     fn enqueue(&mut self, u: &Unit) -> Option<PathBuf> {
+        if !self.installed.contains(&self.cfg.engine) {
+            return None;
+        }
         let path = self.unit_path(u)?;
         if self.is_ready(&path) || self.pending.contains_key(&path) {
             return Some(path);
@@ -362,6 +386,9 @@ impl App {
     }
 
     fn generate_all(&mut self) {
+        if !self.engine_ready() {
+            return;
+        }
         let Some(b) = self.open_book() else { return };
         let id = b.id.clone();
         let shape: Vec<usize> = b.chapters.iter().map(|c| c.pages.len()).collect();
@@ -395,6 +422,9 @@ impl App {
 
     /// Throw away a chapter's audio (current voice) and generate it again with the current settings.
     fn regenerate_chapter(&mut self, ch: usize) {
+        if !self.engine_ready() {
+            return;
+        }
         let Some(b) = self.open_book() else { return };
         let id = b.id.clone();
         let pages = b.chapters[ch].pages.len();
@@ -439,6 +469,72 @@ impl App {
         self.autoplay = None;
     }
 
+    fn engine_ready(&mut self) -> bool {
+        if self.installed.contains(&self.cfg.engine) {
+            return true;
+        }
+        self.notify_err("Install a voice engine first (Settings → Voice engines)");
+        self.show_settings = true;
+        false
+    }
+
+    fn install_engine(&mut self, name: &str) {
+        if self.install.is_none() {
+            self.install_step = "Starting…".into();
+            self.install_progress = None;
+            self.install = Some(installer::start(name, self.ctx.clone()));
+        }
+    }
+
+    fn uninstall_engine(&mut self, name: &str) {
+        if self.cfg.engine == name {
+            self.cancel_generation();
+        }
+        installer::remove(name);
+        self.installed.remove(name);
+        self.confirm_uninstall = None;
+        if self.cfg.engine == name {
+            if let Some(e) = installer::SPECS.iter().find(|s| self.installed.contains(s.name)) {
+                self.cfg.engine = e.name.to_string();
+                self.worker_dirty = true;
+                self.apply_worker_settings();
+            }
+        }
+        self.notify(format!("Removed {}", installer::spec(name).map_or(name, |s| s.title)));
+    }
+
+    fn poll_install(&mut self) {
+        let Some(inst) = &self.install else { return };
+        let mut finished = None;
+        while let Ok(ev) = inst.rx.try_recv() {
+            match ev {
+                installer::Ev::Step(s) => self.install_step = s,
+                installer::Ev::Progress(p) => self.install_progress = p,
+                installer::Ev::Done => finished = Some(Ok(())),
+                installer::Ev::Failed(e) => finished = Some(Err(e)),
+            }
+        }
+        if let Some(r) = finished {
+            let name = inst.engine.clone();
+            let title = installer::spec(&name).map_or(name.clone(), |s| s.title.to_string());
+            self.install = None;
+            match r {
+                Ok(()) if installer::is_installed(&name) => {
+                    self.installed.insert(name.clone());
+                    // first engine, or the selected one wasn't installed: switch to it
+                    if !self.installed.contains(&self.cfg.engine) || self.installed.len() == 1 {
+                        self.cfg.engine = name;
+                        self.worker_dirty = true;
+                        self.apply_worker_settings();
+                    }
+                    self.notify(format!("{title} is ready"));
+                }
+                Ok(()) => self.notify_err(format!("{title} install finished but files are missing — try again")),
+                Err(e) => self.notify_err(format!("Installing {title} failed: {e}")),
+            }
+        }
+    }
+
     /// Restart the worker after the engine, voice or pacing changed.
     fn apply_worker_settings(&mut self) {
         if !self.worker_dirty {
@@ -471,7 +567,7 @@ impl App {
         let Some(path) = self.unit_path(&u) else { return };
         if self.is_ready(&path) {
             self.play_path(&path, u, start_char);
-        } else {
+        } else if self.engine_ready() {
             if let Some(p) = &mut self.player {
                 p.stop();
             }
@@ -507,6 +603,9 @@ impl App {
 
     /// Generate (once) and play a short sample of the selected voice.
     fn preview_voice(&mut self) {
+        if !self.engine_ready() {
+            return;
+        }
         self.apply_worker_settings();
         let path = data_dir().join("previews").join(format!("{}.wav", self.cfg.profile()));
         if path.exists() {
@@ -566,6 +665,7 @@ impl App {
     // ---------- per-frame ----------
 
     fn poll(&mut self) {
+        self.poll_install();
         let mut changed_books = HashSet::new();
         while let Ok(ev) = self.tts.rx.try_recv() {
             match ev {
@@ -818,7 +918,7 @@ fn scan_audio(b: &Book) -> Vec<AudioItem> {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         self.poll();
-        if self.job.is_some() || self.player.as_ref().is_some_and(|p| p.now.is_some()) || self.status.is_some() {
+        if self.job.is_some() || self.install.is_some() || self.player.as_ref().is_some_and(|p| p.now.is_some()) || self.status.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.shortcuts(ctx);
@@ -827,8 +927,9 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
+    book::migrate_legacy();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // headless import: `bookreader --import book.epub`
+    // headless import: `inkvoice --import book.epub`
     if args.first().map(String::as_str) == Some("--import") {
         for p in &args[1..] {
             match book::import(Path::new(p)) {
@@ -840,11 +941,19 @@ fn main() -> eframe::Result {
     }
     let open_file = args.into_iter().find(|a| !a.starts_with("--")).map(PathBuf::from);
 
+    let icon = image::load_from_memory(include_bytes!("../assets/inkvoice.png")).ok().map(|i| {
+        let i = i.to_rgba8();
+        egui::IconData { width: i.width(), height: i.height(), rgba: i.into_raw() }
+    });
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon) = icon {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
+        viewport: viewport
             .with_inner_size([1180.0, 780.0])
             .with_min_inner_size([760.0, 480.0])
-            .with_app_id("bookreader"),
+            .with_app_id("inkvoice"),
         // With vsync on, eglSwapBuffers blocks forever on Wayland while the window is hidden
         // (other workspace / covered), freezing the event loop -> Hyprland "not responding".
         vsync: false,

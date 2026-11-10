@@ -30,6 +30,12 @@ SENT_END_WORD = re.compile(r"[.!?…][\"”’)\]]*$")
 BREAK_WORD = re.compile(r"[.!?…,;:—–][\"”’)\]]*$")
 
 
+def data_dir():
+    """InkVoice's data folder (passed by the app; falls back to the Linux default)."""
+    return os.environ.get("INKVOICE_DATA") or os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "inkvoice")
+
+
 def base_args(default_voice):
     ap = argparse.ArgumentParser()
     ap.add_argument("--voice", default=default_voice)

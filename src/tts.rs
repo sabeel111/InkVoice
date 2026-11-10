@@ -124,13 +124,24 @@ fn run_job(
 ) -> Result<f32, String> {
     if io.is_none() {
         let (prog, args) = cmd.split_first().ok_or("empty engine command")?;
-        let mut c = Command::new(prog)
+        let data = crate::book::data_dir();
+        let mut command = Command::new(prog);
+        command
             .args(args)
+            .env("INKVOICE_DATA", &data)
+            .env("HF_HOME", data.join("hf"))
+            .env("PYTHONIOENCODING", "utf-8");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let mut c = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|e| format!("cannot start `{prog}`: {e} (run ./setup.sh?)"))?;
+            .map_err(|e| format!("cannot start the voice engine ({e}). Install it in Settings → Voice engines."))?;
         *io = Some((c.stdin.take().unwrap(), BufReader::new(c.stdout.take().unwrap())));
         *child.lock().unwrap() = Some(c);
     }

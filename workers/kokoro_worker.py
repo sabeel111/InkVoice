@@ -1,6 +1,6 @@
 """Kokoro 82M (Apache-2.0) via ONNX Runtime — no PyTorch. Protocol and pacing: see common.py.
 Model files (github.com/thewh1teagle/kokoro-onnx, release model-files-v1.0), downloaded by setup.sh
-to ~/.local/share/bookreader/models/kokoro.
+to the InkVoice data folder/models/kokoro.
 Voices: af_* / am_* American female/male, bf_* / bm_* British female/male (e.g. af_heart, bf_emma).
 """
 import os, sys
@@ -12,7 +12,7 @@ ap.add_argument("--quality", choices=["int8", "full"], default="int8",
                 help="int8: 92 MB model; full: 326 MB float32 model")
 args = ap.parse_args()
 
-DATA = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "bookreader")
+DATA = common.data_dir()
 MODEL = os.path.join(DATA, "models", "kokoro")
 
 

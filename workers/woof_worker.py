@@ -1,6 +1,6 @@
 """Underdog Woof TTS worker. Protocol and pacing: see common.py.
 Model: huggingface.co/ConwayResearch/Underdog-Woof (numpy runtime, 24 kHz), downloaded by setup.sh
-to ~/.local/share/bookreader/models/woof. Voices: juno, mira. License: non-commercial.
+to the InkVoice data folder/models/woof. Voices: juno, mira. License: non-commercial.
 
 Expressiveness knobs:
   --temp         sampling temperature (Woof default 0.5; higher = livelier, slightly riskier)
@@ -22,7 +22,7 @@ args = ap.parse_args()
 
 def load():
     import numpy as np
-    data = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "bookreader")
+    data = common.data_dir()
     sys.path.insert(0, os.path.join(data, "models", "woof"))
     from underdog_woof import Woof, SR
     from underdog_woof.textsplit import split_text

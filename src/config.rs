@@ -82,21 +82,14 @@ pub const WOOF_PARAMS: &[Param] = &[
     PIECE,
 ];
 
-pub const KOKORO_PARAMS: &[Param] = &[
-    Param {
-        flag: "quality",
-        label: "Model",
-        help: "8-bit is small (92 MB) and fast. Full precision needs the 326 MB model file.",
-        kind: Kind::Choice { options: &[("int8", "8-bit (default)"), ("full", "Full precision")], default: 0 },
-    },
-    PIECE,
-];
+pub const KOKORO_PARAMS: &[Param] = &[PIECE];
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Config {
     pub engine: String,
-    /// engine name -> worker command (argv)
+    /// engine name -> worker command (argv); built-in, derived from the data folder
+    #[serde(skip)]
     pub engines: BTreeMap<String, Vec<String>>,
     /// engine name -> selected voice
     pub voices: BTreeMap<String, String>,
@@ -123,7 +116,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         let d = data_dir();
-        let py = if cfg!(windows) { d.join("venv/Scripts/python.exe") } else { d.join("venv/bin/python") };
+        let py = crate::installer::venv_python();
         let cmd = |script: &str| vec![py.to_string_lossy().into(), d.join("workers").join(script).to_string_lossy().into()];
         let mut engines = BTreeMap::new();
         engines.insert("phonon".to_string(), cmd("phonon_worker.py"));
@@ -134,7 +127,7 @@ impl Default for Config {
         voices.insert("woof".to_string(), "juno".to_string());
         voices.insert("kokoro".to_string(), "af_heart".to_string());
         Config {
-            engine: "phonon".into(),
+            engine: "kokoro".into(),
             engines,
             voices,
             sentence_pause: 0.30,
@@ -158,7 +151,7 @@ impl Default for Config {
 
 impl Config {
     fn path() -> PathBuf {
-        dirs::config_dir().unwrap_or_default().join("bookreader").join("config.json")
+        crate::book::config_dir().join("config.json")
     }
 
     pub fn load() -> Self {
@@ -166,20 +159,10 @@ impl Config {
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
-        // migrate: voice used to live in the command line (`... --voice Everly`)
-        for (name, cmd) in c.engines.iter_mut() {
-            if let Some(i) = cmd.iter().position(|a| a == "--voice") {
-                if let Some(v) = cmd.get(i + 1).cloned() {
-                    c.voices.insert(name.clone(), v);
-                }
-                cmd.truncate(i);
-            }
-        }
-        // engines added in newer versions appear automatically in older configs
+        // engine commands are always derived from the current data folder
         let defaults = Config::default();
-        for (name, cmd) in defaults.engines {
-            c.engines.entry(name).or_insert(cmd);
-        }
+        c.engines = defaults.engines;
+        // voices added in newer versions appear automatically in older configs
         for (name, v) in defaults.voices {
             c.voices.entry(name).or_insert(v);
         }

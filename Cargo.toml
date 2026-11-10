@@ -1,7 +1,9 @@
 [package]
-name = "bookreader"
+name = "inkvoice"
 version = "0.1.0"
 edition = "2021"
+description = "Lightweight dark-mode ebook reader that turns EPUB/PDF books into audiobooks with on-device voices"
+repository = "https://github.com/sabeel111/InkVoice"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "persistence"] }
@@ -22,6 +24,9 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [dev-dependencies]
 egui_kittest = { version = "0.31", features = ["wgpu", "eframe"] }

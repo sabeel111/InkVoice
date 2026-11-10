@@ -7,7 +7,7 @@ text-to-speech models running entirely on your own machine. No cloud, no Electro
 
 ## Features
 
-- **Native & light** — a single ~9 MB Rust binary (egui). Dark theme built for reading at night.
+- **Native & light** — a single ~10 MB app (Rust + egui) for Linux and Windows. Dark theme built for reading at night.
 - **Library** with real cover art, reading progress, search, and every generated audio file per voice.
 - **Read page by page or by chapter**, serif typography, adjustable size / spacing / width.
 - **Listen per chapter or per page**, generated on your machine.
@@ -19,9 +19,11 @@ text-to-speech models running entirely on your own machine. No cloud, no Electro
 
   | Engine | Size | Notes | License |
   |---|---|---|---|
-  | [Phonon](https://gradium.ai/phonon) 31M | ~300 MB | 24 English voices, ~2–4× real time on CPU | Apache-2.0 |
-  | [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) 82M (ONNX) | ~120 MB | 28 English voices (US/UK) | Apache-2.0 |
-  | [Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) | ~40 MB | 2 voices, numpy only | **Non-commercial** |
+  | [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) 82M (ONNX) | 115 MB | 28 English voices (US/UK) | Apache-2.0 |
+  | [Phonon](https://gradium.ai/phonon) 31M | 125 MB | 24 English voices, ~2–4× real time on CPU | Apache-2.0 |
+  | [Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) | 41 MB | 2 voices, numpy only | **Non-commercial** |
+
+  Engines are installed from inside the app (Settings → Voice engines); no PyTorch, no GPU needed.
 
 - **Natural pacing** — whole paragraphs per generation step, trimmed model silences, adjustable pauses.
 - **Advanced settings** per engine (temperature, weights, sentence splitting, …) and *Regenerate audio* per chapter.
@@ -31,20 +33,38 @@ text-to-speech models running entirely on your own machine. No cloud, no Electro
 |---|---|
 | ![Library](docs/screenshots/1_library.png) | ![Settings](docs/screenshots/4_settings.png) |
 
-## Install (Linux)
+## Install
 
-Requirements: Rust (stable), Python 3.10+, `curl`.
+### Linux (x86_64)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sabeel111/InkVoice/main/packaging/linux/get.sh | sh
+```
+
+Or download `inkvoice-linux-x86_64.tar.gz` from [Releases](https://github.com/sabeel111/InkVoice/releases),
+unpack it and run `./install.sh` (installs for your user, no root). `./install.sh --uninstall` removes it.
+
+### Windows 10/11 (x64)
+
+Download **`InkVoice-Setup-x86_64.exe`** from [Releases](https://github.com/sabeel111/InkVoice/releases) and run it
+(no admin rights needed), or use the portable zip. Windows may show a SmartScreen warning because the app
+isn't code-signed yet — choose *More info → Run anyway*.
+
+### Voices
+
+On first start, open **Settings → Voice engines** and install a voice. InkVoice downloads everything it needs
+into its own folder — a private Python (≈ 285 MB, once) plus the engine you pick — so nothing is installed
+system-wide and no Python knowledge is needed. Remove engines there too.
+
+### Build from source
 
 ```sh
 git clone https://github.com/sabeel111/InkVoice.git && cd InkVoice
-./setup.sh                                  # Python venv + voice engines (~0.5 GB, no PyTorch)
-cargo build --release
-install -Dm755 target/release/bookreader ~/.local/bin/bookreader
-install -Dm644 packaging/inkvoice.desktop ~/.local/share/applications/inkvoice.desktop
+cargo build --release          # Linux needs ALSA headers (libasound2-dev / alsa-lib)
+./target/release/inkvoice
 ```
 
-Then start **InkVoice** from your launcher, run `bookreader`, or `bookreader path/to/book.epub`.
-Headless import: `bookreader --import book.epub`.
+Open a book directly with `inkvoice path/to/book.epub`, or import headlessly with `inkvoice --import book.epub`.
 
 ## Keyboard
 
@@ -68,6 +88,7 @@ src/book.rs      EPUB/PDF import, pagination, covers, reading progress
 src/player.rs    audio output, growing stream buffer, WSOLA speed change
 src/tts.rs       talks to a voice worker over JSON lines (priority queue, cancel)
 src/config.rs    settings, engines, voices, advanced parameters
+src/installer.rs installs voice engines: uv → private Python → packages → model files
 workers/         Python voice workers — common.py does pacing, word timing and streaming
 ```
 
@@ -75,10 +96,10 @@ Each engine is a small worker process; the UI never links a model, so engines ca
 added or removed without touching the app. Word timings are estimated by matching punctuation to the
 pauses detected in the audio.
 
-Data lives in `~/.local/share/bookreader` (books, audio, models, venv) and settings in
-`~/.config/bookreader/config.json`.
+Data lives in `~/.local/share/inkvoice` (Windows: `%LOCALAPPDATA%\inkvoice`) — books, audio, voice engines —
+and settings in `~/.config/inkvoice/config.json` (Windows: `%APPDATA%\inkvoice`).
 
 ## Model licenses
 
-The models are downloaded by `setup.sh`, not stored in this repository. Underdog Woof is free for
+The models are downloaded by the app when you install an engine; they are not stored in this repository. Underdog Woof is free for
 non-commercial use only; Phonon (31M English) and Kokoro are Apache-2.0.

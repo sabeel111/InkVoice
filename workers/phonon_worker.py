@@ -1,5 +1,5 @@
 """Phonon (Gradium) TTS worker. Protocol and pacing: see common.py.
-List voices: ~/.local/share/bookreader/venv/bin/python -m ptts --list-voices
+List voices: <InkVoice data>/venv/bin/python -m ptts --list-voices
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -127,7 +127,9 @@ impl App {
             Some(Act::PlayUnit(u)) => self.play_unit(u, None),
             Some(Act::Toggle) => self.toggle_play(),
             Some(Act::Enqueue(u)) => {
-                self.enqueue(&u);
+                if self.engine_ready() {
+                    self.enqueue(&u);
+                }
             }
             Some(Act::AskRemove(id)) => self.confirm_remove = Some(id),
             Some(Act::CancelRemove) => self.confirm_remove = None,
@@ -308,6 +310,24 @@ impl App {
             .map(|b| b.id.clone())
             .collect();
 
+        if self.installed.is_empty() {
+            Frame::new().fill(RAISED).corner_radius(8.0).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🎧").size(22.0).color(ACCENT));
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Install a voice to listen to your books").strong());
+                        ui.label(RichText::new("Voices run on your own computer. Pick one — you can add others later.").small().color(DIM));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let label = if self.install.is_some() { "Installing…" } else { "Choose a voice" };
+                        if primary(ui, label).clicked() {
+                            self.show_settings = true;
+                        }
+                    });
+                });
+            });
+            ui.add_space(14.0);
+        }
         ui.horizontal(|ui| {
             ui.label(RichText::new("Library").size(24.0).strong());
             ui.label(RichText::new(format!("{} book{}", self.lib.len(), if self.lib.len() == 1 { "" } else { "s" })).color(DIM));
@@ -1010,12 +1030,17 @@ impl App {
             .frame(Frame::window(&ctx.style()).inner_margin(Margin::same(20)))
             .show(ctx, |ui| {
               egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                self.engines_section(ui);
+                let installed = self.installed.clone();
                 let cfg = &mut self.cfg;
                 let mut dirty = false;
                 section(ui, "VOICE");
+                if installed.is_empty() {
+                    ui.label(RichText::new("Install a voice engine above to choose a voice.").color(DIM));
+                }
                 egui::Grid::new("voice").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
                     ui.label("Engine");
-                    let engines: Vec<String> = cfg.engines.keys().cloned().collect();
+                    let engines: Vec<String> = cfg.engines.keys().filter(|e| installed.contains(*e)).cloned().collect();
                     egui::ComboBox::from_id_salt("engine").selected_text(&cfg.engine).width(200.0).show_ui(ui, |ui| {
                         for e in engines {
                             dirty |= ui.selectable_value(&mut cfg.engine, e.clone(), e).changed();
@@ -1185,6 +1210,70 @@ impl App {
             self.show_settings = false;
             self.apply_worker_settings();
             self.cfg.save();
+        }
+    }
+
+    /// Install / remove voice engines.
+    fn engines_section(&mut self, ui: &mut egui::Ui) {
+        section(ui, "VOICE ENGINES");
+        if self.installed.is_empty() {
+            ui.label(
+                RichText::new("The first engine also sets up a private Python for InkVoice (≈ 285 MB, shared by all engines). Nothing is installed system-wide.")
+                    .small()
+                    .color(DIM),
+            );
+            ui.add_space(4.0);
+        }
+        let mut install = None;
+        let mut remove = None;
+        for s in crate::installer::SPECS {
+            Frame::new().fill(RAISED).corner_radius(6.0).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(s.title).strong());
+                            let lic = if s.license == "Non-commercial" { DANGER } else { DIM };
+                            ui.label(RichText::new(format!("{} · {}", s.size, s.license)).small().color(lic));
+                        });
+                        ui.label(RichText::new(s.blurb).small().color(DIM));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let busy = self.install.as_ref().map(|i| i.engine.as_str());
+                        if busy == Some(s.name) {
+                            ui.add(egui::Spinner::new());
+                        } else if self.installed.contains(s.name) {
+                            if self.confirm_uninstall.as_deref() == Some(s.name) {
+                                if ui.add(Button::new(RichText::new("Remove").color(ON_ACCENT)).fill(DANGER)).clicked() {
+                                    remove = Some(s.name);
+                                }
+                            } else {
+                                if ui.add(Button::new(RichText::new("Remove").color(DIM)).frame(false)).on_hover_text("Delete this engine's model files").clicked() {
+                                    self.confirm_uninstall = Some(s.name.to_string());
+                                }
+                                ui.label(RichText::new("✔ Installed").color(ACCENT));
+                            }
+                        } else if ui.add_enabled(busy.is_none(), Button::new(RichText::new("Install").color(ON_ACCENT).strong()).fill(ACCENT)).clicked() {
+                            install = Some(s.name);
+                        }
+                    });
+                });
+                if self.install.as_ref().is_some_and(|i| i.engine == s.name) {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(&self.install_step).small());
+                    match self.install_progress {
+                        Some(p) => ui.add(ProgressBar::new(p).desired_height(6.0).fill(ACCENT).corner_radius(3.0).show_percentage()),
+                        None => ui.add(ProgressBar::new(0.0).desired_height(6.0).animate(true).corner_radius(3.0)),
+                    };
+                }
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(n) = install {
+            self.install_engine(n);
+        }
+        if let Some(n) = remove {
+            self.uninstall_engine(n);
         }
     }
 

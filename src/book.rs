@@ -40,8 +40,30 @@ pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// Where books, audio, voice engines and their models live
+/// (~/.local/share/inkvoice on Linux, %LOCALAPPDATA%\\inkvoice on Windows).
 pub fn data_dir() -> PathBuf {
-    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("bookreader")
+    dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("inkvoice")
+}
+
+pub fn config_dir() -> PathBuf {
+    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("inkvoice")
+}
+
+/// Early versions were called BookReader: move their data and settings over once.
+pub fn migrate_legacy() {
+    let moves = [
+        (dirs::data_dir().map(|d| d.join("bookreader")), data_dir()),
+        (dirs::config_dir().map(|d| d.join("bookreader")), config_dir()),
+    ];
+    for (old, new) in moves {
+        if let Some(old) = old {
+            if old.is_dir() && !new.exists() {
+                let _ = std::fs::create_dir_all(new.parent().unwrap_or(&new));
+                let _ = std::fs::rename(&old, &new);
+            }
+        }
+    }
 }
 pub fn books_dir() -> PathBuf {
     data_dir().join("books")
