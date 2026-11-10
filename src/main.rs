@@ -117,6 +117,8 @@ pub struct App {
     /// voice preview being generated
     preview: Option<PathBuf>,
     feed: Option<Feed>,
+    /// last "play now" request, to ignore accidental repeats
+    last_stream: Option<(PathBuf, usize, Instant)>,
     /// voice engine being installed + its current step / progress
     install: Option<installer::Install>,
     inst: InstallUi,
@@ -163,6 +165,7 @@ impl App {
             last_word: None,
             preview: None,
             feed: None,
+            last_stream: None,
             install: None,
             inst: InstallUi {
                 plan: Vec::new(),
@@ -400,16 +403,23 @@ impl App {
     }
 
     /// Generate a unit with streaming, ahead of the queue, starting at `start_char`.
+    /// Generate a unit with streaming, starting at `start_char`, *now*: anything being generated
+    /// in the background is paused and resumed afterwards. If this very unit was being made in
+    /// the background, it restarts as a stream so playback begins within seconds.
     fn enqueue_stream(&mut self, u: &Unit, start_char: usize) -> Option<PathBuf> {
         let path = self.unit_path(u)?;
-        if self.job.as_ref().is_some_and(|j| j.path == path) {
-            return Some(path); // already being made: play when done
+        // a double-click (or impatient second click) shouldn't restart the same request
+        if let Some((p, c, at)) = &self.last_stream {
+            if *p == path && *c == start_char && at.elapsed().as_secs_f32() < 2.0 {
+                return Some(path);
+            }
         }
         let text = self.unit_text(u)?;
         let _ = std::fs::create_dir_all(path.parent()?);
         let label = self.unit_label(u);
         self.pending.insert(path.clone(), label);
-        self.tts.submit(tts::Job { text, out: path.clone(), stream: Some(start_char) }, true);
+        self.tts.play_now(tts::Job { text, out: path.clone(), stream: Some(start_char) });
+        self.last_stream = Some((path.clone(), start_char, Instant::now()));
         Some(path)
     }
 
@@ -746,6 +756,18 @@ impl App {
         self.poll_install();
         let mut changed_books = HashSet::new();
         while let Ok(ev) = self.tts.rx.try_recv() {
+            if std::env::var_os("INKVOICE_DEBUG").is_some() {
+                let d = match &ev {
+                    tts::Event::Started(p) => format!("started {}", p.display()),
+                    tts::Event::StreamStart { out, .. } => format!("stream-start {}", out.display()),
+                    tts::Event::Chunk { out, samples, .. } => format!("chunk {} {samples}", out.display()),
+                    tts::Event::Progress(p, f) => format!("progress {} {f}", p.display()),
+                    tts::Event::Done { out, .. } => format!("done {}", out.display()),
+                    tts::Event::Failed(p, e) => format!("FAILED {} {e}", p.display()),
+                    tts::Event::Interrupted(p) => format!("interrupted {}", p.display()),
+                };
+                eprintln!("EV {d}");
+            }
             match ev {
                 tts::Event::Started(p) => {
                     if self.pending.contains_key(&p) {
@@ -813,6 +835,12 @@ impl App {
                         if let Some(pl) = &mut self.player {
                             let _ = pl.play(&p, "Voice preview".into(), Unit { book: String::new(), ch: 0, pg: None });
                         }
+                    }
+                }
+                tts::Event::Interrupted(p) => {
+                    // paused for something the user wants to hear now; it is queued again
+                    if self.job.as_ref().is_some_and(|j| j.path == p) {
+                        self.job = None;
                     }
                 }
                 tts::Event::Failed(p, e) => {
@@ -1102,10 +1130,12 @@ mod screenshots {
         save(&mut h, "3_generating");
 
         h.state_mut().show_settings = true;
+        let engine = h.state().cfg.engine.clone();
         h.state_mut().cfg.engine = "woof".into();
         h.state_mut().cfg.set_adv("temp", Some("0.650".into()));
         save(&mut h, "4_settings");
-        h.state_mut().cfg.engine = "phonon".into();
+        h.state_mut().cfg.set_adv("temp", None);
+        h.state_mut().cfg.engine = engine;
 
         // streaming: play a page that has no audio yet; it must start before generation ends
         let s = h.state_mut();
@@ -1137,6 +1167,7 @@ mod screenshots {
         }
         assert!(started.is_some(), "streaming never started");
 
+
         // install window: working, success (confetti mid-air), failure
         let step = |l: &str, w: f32| installer::StepInfo { label: l.into(), weight: w };
         let s = h.state_mut();
@@ -1166,5 +1197,58 @@ mod screenshots {
         let s = h.state_mut();
         s.inst.result = Some(("kokoro".into(), InstallOutcome::Failed("curl: (6) Could not resolve host: github.com".into()), Instant::now()));
         save(&mut h, "8_install_failed");
+    }
+
+    /// Asking to listen while another chapter is being generated must start right away
+    /// (the background chapter is paused and resumed), and a double-click must not restart it.
+    #[test]
+    #[ignore]
+    fn listen_now_during_background_generation() {
+        let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| App::new(cc, None));
+        let want = std::env::var("SHOT_BOOK").unwrap_or_default().to_lowercase();
+        let id = h.state().lib.iter().find(|b| b.title.to_lowercase().contains(&want)).unwrap().id.clone();
+        let shot_ch: usize = std::env::var("SHOT_CH").ok().and_then(|c| c.parse().ok()).unwrap_or(4);
+        h.state_mut().open_reader(&id);
+        h.state_mut().cfg.page_mode = true;
+        if let Ok(e) = std::env::var("SHOT_ENGINE") {
+            h.state_mut().cfg.engine = e;
+            h.state_mut().worker_dirty = true;
+            h.state_mut().apply_worker_settings();
+        }
+        let bg = Unit { book: id.clone(), ch: shot_ch + 1, pg: Some(1) };
+        let target = Unit { book: id.clone(), ch: shot_ch + 2, pg: Some(0) };
+        for u in [&bg, &target] {
+            let p = h.state().unit_path(u).unwrap();
+            let _ = std::fs::remove_file(&p);
+            h.state_mut().have.remove(&p);
+        }
+        h.state_mut().enqueue(&bg);
+        let t_bg = Instant::now();
+        while h.state().job.is_none() && t_bg.elapsed().as_secs() < 30 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let t1 = Instant::now();
+        h.state_mut().play_from_char(target.clone(), Some(0));
+        h.state_mut().play_from_char(target.clone(), Some(0)); // double-click
+        let mut heard = None;
+        while t1.elapsed().as_secs() < 60 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let p = h.state().player.as_ref().unwrap();
+            if p.now.as_ref().is_some_and(|n| n.unit == target) && !p.is_buffering() && p.pos() > 0.3 {
+                heard = Some(t1.elapsed().as_secs_f32());
+                break;
+            }
+        }
+        let bg_path = h.state().unit_path(&bg).unwrap();
+        eprintln!("PLAY-NOW: listening after {heard:?}s; background chapter still queued: {}", h.state().pending.contains_key(&bg_path));
+        assert!(heard.is_some_and(|t| t < 20.0), "listening should start while background work is paused");
+        assert!(h.state().pending.contains_key(&bg_path), "background chapter kept in the queue");
+        if let Some(p) = &mut h.state_mut().player {
+            p.stop();
+        }
+        h.state_mut().cancel_generation();
     }
 }

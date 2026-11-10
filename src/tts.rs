@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 
+#[derive(Clone)]
 pub struct Job {
     pub text: String,
     pub out: PathBuf,
@@ -24,12 +25,18 @@ pub enum Event {
     /// finished; `stream_offset` = where the streamed part starts in the final file (s)
     Done { out: PathBuf, stream_offset: f32 },
     Failed(PathBuf, String),
+    /// stopped to make way for something the user wants to hear now; it is queued again
+    Interrupted(PathBuf),
 }
 
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Job>,
     closed: bool,
+    /// the job the worker is busy with
+    running: Option<Job>,
+    /// the running job was stopped on purpose by `play_now`
+    preempted: bool,
 }
 
 pub struct Tts {
@@ -60,6 +67,8 @@ impl Tts {
                             break None;
                         }
                         if let Some(j) = q.jobs.pop_front() {
+                            q.running = Some(j.clone());
+                            q.preempted = false;
                             break Some(j);
                         }
                         q = cv.wait(q).unwrap();
@@ -67,7 +76,13 @@ impl Tts {
                 };
                 let Some(job) = job else { break };
                 send(Event::Started(job.out.clone()));
-                match run_job(&cmd, &child_t, &mut io, &mut id, &job, &send) {
+                let result = run_job(&cmd, &child_t, &mut io, &mut id, &job, &send);
+                let preempted = {
+                    let mut q = queue_t.0.lock().unwrap();
+                    q.running = None;
+                    std::mem::take(&mut q.preempted)
+                };
+                match result {
                     Ok(stream_offset) => send(Event::Done { out: job.out, stream_offset }),
                     Err(e) => {
                         io = None;
@@ -75,7 +90,7 @@ impl Tts {
                             let _ = c.kill();
                             let _ = c.wait();
                         }
-                        send(Event::Failed(job.out, e));
+                        send(if preempted { Event::Interrupted(job.out) } else { Event::Failed(job.out, e) });
                     }
                 }
             }
@@ -93,6 +108,26 @@ impl Tts {
         let mut q = lock.lock().unwrap();
         q.jobs.retain(|j| j.out != job.out);
         if front { q.jobs.push_front(job) } else { q.jobs.push_back(job) }
+        cv.notify_one();
+    }
+
+    /// Start `job` right away: whatever the worker is busy with is stopped and queued again
+    /// right after it (a background chapter is never lost, only postponed).
+    pub fn play_now(&self, job: Job) {
+        let (lock, cv) = &*self.queue;
+        let mut q = lock.lock().unwrap();
+        q.jobs.retain(|j| j.out != job.out);
+        if let Some(r) = q.running.clone() {
+            if r.out != job.out {
+                // resume the interrupted job afterwards, as a normal (non-streaming) job
+                q.jobs.push_front(Job { stream: None, ..r });
+            }
+            q.preempted = true;
+            if let Some(c) = self.child.lock().unwrap().as_mut() {
+                let _ = c.kill();
+            }
+        }
+        q.jobs.push_front(job);
         cv.notify_one();
     }
 
@@ -180,5 +215,73 @@ fn run_job(
             Some(e) => Err(e.to_string()),
             None => Ok(v.get("stream_offset").and_then(|s| s.as_f64()).unwrap_or(0.0) as f32),
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Stand-in worker: streams instantly, takes 5 s for a normal (background) job.
+    const FAKE: &str = r#"
+import json, sys, time
+for line in sys.stdin:
+    r = json.loads(line)
+    if r.get("stream"):
+        print(json.dumps({"id": r["id"], "stream": "/tmp/fake.pcm", "sr": 24000}), flush=True)
+        print(json.dumps({"id": r["id"], "progress": 0.5, "chunk": {"samples": 0, "words": []}}), flush=True)
+    else:
+        time.sleep(5)
+    print(json.dumps({"id": r["id"], "ok": True, "stream_offset": 0}), flush=True)
+"#;
+
+    fn job(name: &str, stream: Option<usize>) -> Job {
+        Job { text: "x".into(), out: PathBuf::from(name), stream }
+    }
+
+    #[test]
+    fn play_now_interrupts_background_work_and_resumes_it() {
+        let tts = Tts::start(vec!["python3".into(), "-c".into(), FAKE.into()], eframe::egui::Context::default());
+        let next = |timeout: f32| tts.rx.recv_timeout(Duration::from_secs_f32(timeout)).ok();
+
+        tts.submit(job("background", None), false);
+        assert!(matches!(next(5.0), Some(Event::Started(p)) if p == PathBuf::from("background")));
+        std::thread::sleep(Duration::from_millis(500));
+
+        let t0 = Instant::now();
+        tts.play_now(job("listen", Some(0)));
+        let mut log = Vec::new();
+        let mut stream_started = None;
+        let mut background_done = false;
+        while let Some(ev) = next(15.0) {
+            let tag = match &ev {
+                Event::Started(p) => format!("started {}", p.display()),
+                Event::StreamStart { out, .. } => {
+                    stream_started.get_or_insert(t0.elapsed().as_secs_f32());
+                    format!("stream {}", out.display())
+                }
+                Event::Chunk { .. } | Event::Progress(..) => continue,
+                Event::Done { out, .. } => {
+                    if out == &PathBuf::from("background") {
+                        background_done = true;
+                    }
+                    format!("done {}", out.display())
+                }
+                Event::Interrupted(p) => format!("interrupted {}", p.display()),
+                Event::Failed(p, e) => panic!("{} failed: {e}", p.display()),
+            };
+            log.push(tag);
+            if background_done {
+                break;
+            }
+        }
+        eprintln!("{log:?}  (listening started after {stream_started:?} s)");
+        assert_eq!(log.first().map(String::as_str), Some("interrupted background"));
+        assert!(stream_started.unwrap() < 3.0, "streaming should start right away, not after the background job");
+        let listen_done = log.iter().position(|l| l == "done listen").unwrap();
+        let bg_restart = log.iter().rposition(|l| l == "started background").unwrap();
+        assert!(listen_done < bg_restart, "background job resumes after the requested one");
+        assert!(background_done, "background job was finished after all");
     }
 }

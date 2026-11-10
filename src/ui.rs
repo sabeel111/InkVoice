@@ -731,7 +731,8 @@ impl App {
                         ui.add_space(14.0);
                     }
                     let resp = ui.add(egui::Label::new(galley.clone()).selectable(false).sense(Sense::click()));
-                    if audio_here || loaded_here {
+                    // click a word to listen from there — also in chapters without audio yet
+                    if audio_here || loaded_here || self.installed.contains(&self.cfg.engine) {
                         let resp = resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                         if resp.clicked() {
                             if let Some(pos) = resp.interact_pointer_pos() {
