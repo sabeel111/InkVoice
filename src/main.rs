@@ -53,6 +53,26 @@ struct Feed {
 
 pub const SPEEDS: &[f32] = &[0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
 
+/// How an engine install ended (shown in the install window until dismissed).
+pub enum InstallOutcome {
+    Ok,
+    Failed(String),
+}
+
+pub struct InstallUi {
+    pub plan: Vec<installer::StepInfo>,
+    pub step: usize,
+    pub frac: f32,
+    pub detail: String,
+    /// overall progress, never decreasing
+    pub target: f32,
+    /// what the bar shows (eases toward `target`)
+    pub shown: f32,
+    pub started: Instant,
+    pub visible: bool,
+    pub result: Option<(String, InstallOutcome, Instant)>,
+}
+
 struct Status {
     text: String,
     error: bool,
@@ -99,8 +119,7 @@ pub struct App {
     feed: Option<Feed>,
     /// voice engine being installed + its current step / progress
     install: Option<installer::Install>,
-    install_step: String,
-    install_progress: Option<f32>,
+    inst: InstallUi,
     installed: HashSet<String>,
     confirm_uninstall: Option<String>,
 }
@@ -145,8 +164,17 @@ impl App {
             preview: None,
             feed: None,
             install: None,
-            install_step: String::new(),
-            install_progress: None,
+            inst: InstallUi {
+                plan: Vec::new(),
+                step: 0,
+                frac: 0.0,
+                detail: String::new(),
+                target: 0.0,
+                shown: 0.0,
+                started: Instant::now(),
+                visible: false,
+                result: None,
+            },
             installed: installer::SPECS.iter().filter(|s| installer::is_installed(s.name)).map(|s| s.name.to_string()).collect(),
             confirm_uninstall: None,
             cfg,
@@ -480,10 +508,32 @@ impl App {
 
     fn install_engine(&mut self, name: &str) {
         if self.install.is_none() {
-            self.install_step = "Starting…".into();
-            self.install_progress = None;
+            self.inst.plan.clear();
+            self.inst.step = 0;
+            self.inst.frac = 0.0;
+            self.inst.detail = "Getting ready…".into();
+            self.inst.target = 0.0;
+            self.inst.shown = 0.0;
+            self.inst.started = Instant::now();
+            self.inst.visible = true;
+            self.inst.result = None;
             self.install = Some(installer::start(name, self.ctx.clone()));
         }
+    }
+
+    fn cancel_install(&mut self) {
+        if let Some(i) = &self.install {
+            i.cancel();
+        }
+    }
+
+    /// Switch to a freshly installed engine and play a short sample of it.
+    fn try_engine(&mut self, name: &str) {
+        if self.cfg.engine != name {
+            self.cfg.engine = name.to_string();
+            self.worker_dirty = true;
+        }
+        self.preview_voice();
     }
 
     fn uninstall_engine(&mut self, name: &str) {
@@ -508,29 +558,57 @@ impl App {
         let mut finished = None;
         while let Ok(ev) = inst.rx.try_recv() {
             match ev {
-                installer::Ev::Step(s) => self.install_step = s,
-                installer::Ev::Progress(p) => self.install_progress = p,
+                installer::Ev::Plan(p) => self.inst.plan = p,
+                installer::Ev::Step { i, frac, detail } => {
+                    self.inst.step = i;
+                    self.inst.frac = frac;
+                    if !detail.is_empty() || frac == 0.0 {
+                        self.inst.detail = detail;
+                    }
+                    let total: f32 = self.inst.plan.iter().map(|s| s.weight).sum();
+                    if total > 0.0 && i < self.inst.plan.len() {
+                        let before: f32 = self.inst.plan[..i].iter().map(|s| s.weight).sum();
+                        let t = (before + self.inst.plan[i].weight * frac) / total;
+                        self.inst.target = self.inst.target.max(t.min(1.0));
+                    }
+                }
                 installer::Ev::Done => finished = Some(Ok(())),
-                installer::Ev::Failed(e) => finished = Some(Err(e)),
+                installer::Ev::Cancelled => finished = Some(Err(None)),
+                installer::Ev::Failed(e) => finished = Some(Err(Some(e))),
             }
         }
-        if let Some(r) = finished {
-            let name = inst.engine.clone();
-            let title = installer::spec(&name).map_or(name.clone(), |s| s.title.to_string());
-            self.install = None;
-            match r {
-                Ok(()) if installer::is_installed(&name) => {
-                    self.installed.insert(name.clone());
-                    // first engine, or the selected one wasn't installed: switch to it
-                    if !self.installed.contains(&self.cfg.engine) || self.installed.len() == 1 {
-                        self.cfg.engine = name;
-                        self.worker_dirty = true;
-                        self.apply_worker_settings();
-                    }
+        let Some(r) = finished else { return };
+        let name = inst.engine.clone();
+        let title = installer::spec(&name).map_or(name.clone(), |s| s.title.to_string());
+        self.install = None;
+        match r {
+            Ok(()) if installer::is_installed(&name) => {
+                self.inst.target = 1.0;
+                self.installed.insert(name.clone());
+                // first engine, or the selected one wasn't installed: switch to it
+                if !self.installed.contains(&self.cfg.engine) || self.installed.len() == 1 {
+                    self.cfg.engine = name.clone();
+                    self.worker_dirty = true;
+                    self.apply_worker_settings();
+                }
+                if self.inst.visible {
+                    self.inst.result = Some((name, InstallOutcome::Ok, Instant::now()));
+                } else {
                     self.notify(format!("{title} is ready"));
                 }
-                Ok(()) => self.notify_err(format!("{title} install finished but files are missing — try again")),
-                Err(e) => self.notify_err(format!("Installing {title} failed: {e}")),
+            }
+            Ok(()) => {
+                self.inst.visible = true;
+                self.inst.result =
+                    Some((name, InstallOutcome::Failed("The install finished but some files are missing.".into()), Instant::now()));
+            }
+            Err(None) => {
+                self.inst.visible = false;
+                self.notify("Installation cancelled — nothing was left behind");
+            }
+            Err(Some(e)) => {
+                self.inst.visible = true;
+                self.inst.result = Some((name, InstallOutcome::Failed(e), Instant::now()));
             }
         }
     }
@@ -918,7 +996,7 @@ fn scan_audio(b: &Book) -> Vec<AudioItem> {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         self.poll();
-        if self.job.is_some() || self.install.is_some() || self.player.as_ref().is_some_and(|p| p.now.is_some()) || self.status.is_some() {
+        if self.job.is_some() || self.install.is_some() || self.inst.result.is_some() || self.player.as_ref().is_some_and(|p| p.now.is_some()) || self.status.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.shortcuts(ctx);
@@ -1054,5 +1132,35 @@ mod screenshots {
             }
         }
         assert!(started.is_some(), "streaming never started");
+
+        // install window: working, success (confetti mid-air), failure
+        let step = |l: &str, w: f32| installer::StepInfo { label: l.into(), weight: w };
+        let s = h.state_mut();
+        if let Some(p) = &mut s.player {
+            p.stop();
+        }
+        s.install = Some(installer::dummy("kokoro"));
+        s.inst.plan = vec![
+            step("Download the installer tool (uv)", 18.0),
+            step("Set up a private Python", 33.0),
+            step("Install Kokoro software", 50.0),
+            step("Download the Kokoro voice model", 120.0),
+        ];
+        s.inst.step = 2;
+        s.inst.frac = 0.55;
+        s.inst.detail = "27.4 of 48.3 MB".into();
+        s.inst.target = (18.0 + 33.0 + 50.0 * 0.55) / 221.0;
+        s.inst.shown = s.inst.target;
+        s.inst.started = Instant::now() - std::time::Duration::from_secs(40);
+        s.inst.visible = true;
+        save(&mut h, "6_installing");
+        let s = h.state_mut();
+        s.install = None;
+        s.inst.result = Some(("kokoro".into(), InstallOutcome::Ok, Instant::now() - std::time::Duration::from_millis(650)));
+        h.run_steps(2);
+        h.render().unwrap().save(format!("{dir}/7_installed.png")).unwrap();
+        let s = h.state_mut();
+        s.inst.result = Some(("kokoro".into(), InstallOutcome::Failed("curl: (6) Could not resolve host: github.com".into()), Instant::now()));
+        save(&mut h, "8_install_failed");
     }
 }

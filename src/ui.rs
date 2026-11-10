@@ -221,6 +221,7 @@ impl App {
             }
         }
         self.settings_window(ctx);
+        self.install_window(ctx);
         self.toast(ctx);
     }
 
@@ -319,8 +320,11 @@ impl App {
                         ui.label(RichText::new("Voices run on your own computer. Pick one — you can add others later.").small().color(DIM));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let label = if self.install.is_some() { "Installing…" } else { "Choose a voice" };
-                        if primary(ui, label).clicked() {
+                        if self.install.is_some() {
+                            if ui.button(format!("Installing… {:.0}%", self.inst.shown * 100.0)).clicked() {
+                                self.inst.visible = true;
+                            }
+                        } else if primary(ui, "Choose a voice").clicked() {
                             self.show_settings = true;
                         }
                     });
@@ -1259,12 +1263,15 @@ impl App {
                     });
                 });
                 if self.install.as_ref().is_some_and(|i| i.engine == s.name) {
-                    ui.add_space(4.0);
-                    ui.label(RichText::new(&self.install_step).small());
-                    match self.install_progress {
-                        Some(p) => ui.add(ProgressBar::new(p).desired_height(6.0).fill(ACCENT).corner_radius(3.0).show_percentage()),
-                        None => ui.add(ProgressBar::new(0.0).desired_height(6.0).animate(true).corner_radius(3.0)),
-                    };
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let w = ui.available_width() - 70.0;
+                        ui.add(ProgressBar::new(self.inst.shown).desired_width(w).desired_height(6.0).fill(ACCENT).corner_radius(3.0));
+                        ui.label(RichText::new(format!("{:.0}%", self.inst.shown * 100.0)).small().color(ACCENT));
+                        if !self.inst.visible && ui.add(Button::new(RichText::new("Show").small()).frame(false)).clicked() {
+                            self.inst.visible = true;
+                        }
+                    });
                 }
             });
             ui.add_space(4.0);
@@ -1274,6 +1281,225 @@ impl App {
         }
         if let Some(n) = remove {
             self.uninstall_engine(n);
+        }
+    }
+
+    // =============================== install window ===============================
+
+    /// Full-screen install experience: animated badge, smooth overall bar, step checklist,
+    /// friendly copy and tips; success (with confetti) and failure screens.
+    fn install_window(&mut self, ctx: &egui::Context) {
+        if !self.inst.visible || (self.install.is_none() && self.inst.result.is_none()) {
+            return;
+        }
+        let dt = ctx.input(|i| i.stable_dt).min(0.1);
+        self.inst.shown += (self.inst.target - self.inst.shown) * (1.0 - (-dt * 4.0).exp());
+        let t = ctx.input(|i| i.time) as f32;
+        let engine = self
+            .install
+            .as_ref()
+            .map(|i| i.engine.clone())
+            .or_else(|| self.inst.result.as_ref().map(|r| r.0.clone()))
+            .unwrap_or_default();
+        let title = crate::installer::spec(&engine).map_or("Voice", |s| s.title);
+
+        // dim + block the app behind the dialog
+        let screen = ctx.screen_rect();
+        egui::Area::new(egui::Id::new("install_block")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
+            let r = ui.allocate_response(screen.size(), Sense::click());
+            ui.painter().rect_filled(r.rect, 0.0, egui::Color32::from_black_alpha(150));
+        });
+
+        enum Do {
+            Background,
+            Cancel,
+            Close,
+            Retry,
+            Try,
+        }
+        let mut act = None;
+        let shown = self.inst.shown;
+        // a separate id per screen so each one sizes to its own content
+        let screen_id = match &self.inst.result {
+            None => "install-working",
+            Some((_, crate::InstallOutcome::Ok, _)) => "install-done",
+            Some(_) => "install-failed",
+        };
+        let win = egui::Window::new("install")
+            .id(egui::Id::new(screen_id))
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .order(egui::Order::Foreground)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(Frame::window(&ctx.style()).fill(SURFACE).corner_radius(16.0).inner_margin(Margin::same(28)))
+            .show(ctx, |ui| {
+                ui.set_width(440.0);
+                match &self.inst.result {
+                    // ---------------- working ----------------
+                    None => {
+                        let step_label = self.inst.plan.get(self.inst.step).map(|s| s.label.clone()).unwrap_or_default();
+                        ui.horizontal(|ui| {
+                            voice_badge(ui, t, 56.0);
+                            ui.add_space(12.0);
+                            ui.vertical(|ui| {
+                                ui.add_space(4.0);
+                                ui.label(RichText::new(format!("Installing {title}")).size(21.0).strong());
+                                ui.label(RichText::new(flavor(&step_label, shown, title)).color(DIM));
+                            });
+                        });
+                        ui.add_space(22.0);
+                        fancy_bar(ui, shown, t);
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("{:.0}%", shown * 100.0)).size(15.0).strong().color(ACCENT));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let el = self.inst.started.elapsed().as_secs_f32();
+                                let eta = if self.inst.target > 0.04 && el > 4.0 {
+                                    let left = el * (1.0 - self.inst.target) / self.inst.target;
+                                    if left < 8.0 { "almost done".to_string() } else { format!("about {} left", nice_duration(left)) }
+                                } else {
+                                    "estimating time…".to_string()
+                                };
+                                ui.label(RichText::new(eta).color(DIM));
+                            });
+                        });
+                        ui.add_space(18.0);
+                        if self.inst.plan.is_empty() {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Spinner::new().size(16.0).color(ACCENT));
+                                ui.label(RichText::new(&self.inst.detail).color(DIM));
+                            });
+                        }
+                        for (i, s) in self.inst.plan.iter().enumerate() {
+                            let state = if i < self.inst.step || (i == self.inst.step && self.inst.frac >= 1.0) {
+                                Dot::Done
+                            } else if i == self.inst.step {
+                                Dot::Active
+                            } else {
+                                Dot::Pending
+                            };
+                            ui.horizontal(|ui| {
+                                ui.set_height(26.0);
+                                step_dot(ui, state, t);
+                                ui.add_space(6.0);
+                                let (c, strong) = match state {
+                                    Dot::Done => (DIM, false),
+                                    Dot::Active => (TEXT, true),
+                                    Dot::Pending => (FAINT, false),
+                                };
+                                let mut txt = RichText::new(&s.label).color(c);
+                                if strong {
+                                    txt = txt.strong();
+                                }
+                                ui.label(txt);
+                                if matches!(state, Dot::Active) && !self.inst.detail.is_empty() {
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        ui.label(RichText::new(&self.inst.detail).small().color(DIM));
+                                    });
+                                }
+                            });
+                        }
+                        ui.add_space(18.0);
+                        Frame::new().fill(RAISED).corner_radius(8.0).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new("TIP").small().strong().color(ACCENT));
+                                let i = (self.inst.started.elapsed().as_secs() / 6) as usize % TIPS.len();
+                                ui.label(RichText::new(TIPS[i]).small().color(DIM));
+                            });
+                        });
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            if ui.add(Button::new(RichText::new("Run in background").color(DIM)).frame(false))
+                                .on_hover_text("Keep installing while you read — progress stays in Settings")
+                                .clicked()
+                            {
+                                act = Some(Do::Background);
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui.button("Cancel").clicked() {
+                                    act = Some(Do::Cancel);
+                                }
+                            });
+                        });
+                    }
+                    // ---------------- success ----------------
+                    Some((_, crate::InstallOutcome::Ok, at)) => {
+                        let age = at.elapsed().as_secs_f32();
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(6.0);
+                            success_badge(ui, age);
+                            ui.add_space(14.0);
+                            ui.label(RichText::new(format!("{title} is ready")).size(23.0).strong());
+                            ui.add_space(2.0);
+                            ui.label(RichText::new("Your books can now be read aloud — right here on your computer.").color(DIM));
+                            ui.add_space(22.0);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space((ui.available_width() - 258.0).max(0.0) / 2.0);
+                            if ui.add(Button::new(RichText::new("⏵  Play a sample").color(ON_ACCENT).strong()).fill(ACCENT).min_size(Vec2::new(150.0, 34.0))).clicked() {
+                                act = Some(Do::Try);
+                            }
+                            if ui.add(Button::new("Done").min_size(Vec2::new(100.0, 34.0))).clicked() {
+                                act = Some(Do::Close);
+                            }
+                        });
+                    }
+                    // ---------------- failure ----------------
+                    Some((_, crate::InstallOutcome::Failed(err), _)) => {
+                        let err = err.clone();
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(6.0);
+                            failure_badge(ui);
+                            ui.add_space(14.0);
+                            ui.label(RichText::new("The install didn't finish").size(21.0).strong());
+                            ui.add_space(2.0);
+                            ui.label(RichText::new("Check your internet connection and try again.\nNothing was left half-installed.").color(DIM));
+                        });
+                        ui.add_space(12.0);
+                        egui::CollapsingHeader::new(RichText::new("Details").small().color(DIM)).show(ui, |ui| {
+                            egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                                ui.label(RichText::new(err).monospace().small().color(DIM));
+                            });
+                        });
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space((ui.available_width() - 228.0).max(0.0) / 2.0);
+                            if ui.add(Button::new(RichText::new("Try again").color(ON_ACCENT).strong()).fill(ACCENT).min_size(Vec2::new(120.0, 34.0))).clicked() {
+                                act = Some(Do::Retry);
+                            }
+                            if ui.add(Button::new("Close").min_size(Vec2::new(100.0, 34.0))).clicked() {
+                                act = Some(Do::Close);
+                            }
+                        });
+                    }
+                }
+            });
+
+        // confetti for the first moments of success
+        if let (Some(w), Some((_, crate::InstallOutcome::Ok, at))) = (&win, &self.inst.result) {
+            let age = at.elapsed().as_secs_f32();
+            if age < 2.8 {
+                confetti(ctx, w.response.rect, age);
+            }
+        }
+        ctx.request_repaint();
+
+        match act {
+            Some(Do::Background) => self.inst.visible = false,
+            Some(Do::Cancel) => self.cancel_install(),
+            Some(Do::Close) => {
+                self.inst.visible = false;
+                self.inst.result = None;
+            }
+            Some(Do::Retry) => self.install_engine(&engine),
+            Some(Do::Try) => {
+                self.inst.visible = false;
+                self.inst.result = None;
+                self.try_engine(&engine);
+            }
+            None => {}
         }
     }
 
@@ -1315,4 +1541,183 @@ impl App {
 /// Byte index of the `n`-th char.
 fn byte_at(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map_or(s.len(), |(b, _)| b)
+}
+
+// =============================== install window pieces ===============================
+
+const TIPS: &[&str] = &[
+    "Everything runs on your computer — your books never leave it.",
+    "Click any word on a page to start listening from there.",
+    "Press [ and ] to change the reading speed — the pitch stays natural.",
+    "Each voice keeps its own audio, so you can switch voices any time.",
+    "Right-click a chapter to regenerate its audio with new settings.",
+    "Playback starts within seconds — the rest is prepared while you listen.",
+];
+
+/// Friendly line under the title for the current step.
+fn flavor(step: &str, shown: f32, title: &str) -> String {
+    if shown > 0.95 {
+        return "Almost there — putting the finishing touches…".into();
+    }
+    if step.contains("(uv)") {
+        "Fetching the toolbox…".into()
+    } else if step.contains("Python") {
+        "Building a cosy little home for Python…".into()
+    } else if step.contains("software") {
+        "Warming up the vocal cords…".into()
+    } else if step.contains("voice model") {
+        format!("Teaching {title} how to read…")
+    } else {
+        "Getting things ready…".into()
+    }
+}
+
+fn nice_duration(s: f32) -> String {
+    let s = s.round() as u32;
+    if s < 60 { format!("{s} s") } else if s < 3600 { format!("{} min", (s + 30) / 60) } else { format!("{} h {} min", s / 3600, s / 60 % 60) }
+}
+
+/// Round badge with bouncing sound bars.
+fn voice_badge(ui: &mut egui::Ui, t: f32, d: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(d), Sense::hover());
+    let p = ui.painter();
+    let c = rect.center();
+    p.circle_filled(c, d / 2.0, ACCENT_BG);
+    p.circle_stroke(c, d / 2.0 - 1.0, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.6)));
+    let n = 5;
+    let bw = d * 0.075;
+    let gap = d * 0.06;
+    let total = n as f32 * bw + (n - 1) as f32 * gap;
+    for i in 0..n {
+        let phase = t * 5.0 + i as f32 * 0.85;
+        let h = d * 0.42 * (0.30 + 0.70 * (0.5 + 0.5 * phase.sin()).powf(1.3));
+        let x = c.x - total / 2.0 + bw / 2.0 + i as f32 * (bw + gap);
+        p.rect_filled(Rect::from_center_size(egui::pos2(x, c.y), Vec2::new(bw, h)), bw / 2.0, ACCENT);
+    }
+}
+
+/// Thick rounded progress bar with a soft moving shimmer.
+fn fancy_bar(ui: &mut egui::Ui, v: f32, t: f32) {
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 12.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, 6.0, RAISED);
+    let fw = (w * v.clamp(0.0, 1.0)).max(if v > 0.0 { 12.0 } else { 0.0 });
+    if fw <= 0.0 {
+        return;
+    }
+    let fill = Rect::from_min_size(rect.min, Vec2::new(fw, rect.height()));
+    p.rect_filled(fill, 6.0, ACCENT);
+    // top highlight for a little depth
+    p.rect_filled(Rect::from_min_size(fill.min + Vec2::new(4.0, 2.0), Vec2::new((fw - 8.0).max(0.0), 2.0)), 1.0, egui::Color32::from_rgba_unmultiplied(255, 236, 200, 60));
+    // shimmer band sweeping across the filled part
+    let band = 70.0;
+    let x = rect.min.x + ((t * 160.0) % (fw + band * 2.0)) - band;
+    let clip = p.with_clip_rect(fill);
+    for (k, a) in [(1.0f32, 18u8), (0.6, 22), (0.3, 26)] {
+        let bw = band * k;
+        clip.rect_filled(
+            Rect::from_center_size(egui::pos2(x, fill.center().y), Vec2::new(bw, fill.height())),
+            6.0,
+            egui::Color32::from_rgba_unmultiplied(255, 245, 225, a),
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Dot {
+    Done,
+    Active,
+    Pending,
+}
+
+fn step_dot(ui: &mut egui::Ui, state: Dot, t: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
+    let p = ui.painter();
+    let c = rect.center();
+    match state {
+        Dot::Done => {
+            p.circle_filled(c, 9.0, ACCENT);
+            check(p, c, 9.0, ON_ACCENT, 2.0);
+        }
+        Dot::Active => {
+            p.circle_stroke(c, 8.0, Stroke::new(2.0_f32, RAISED.gamma_multiply(1.6)));
+            let start = t * 5.0;
+            let pts: Vec<egui::Pos2> = (0..=16)
+                .map(|k| {
+                    let a = start + k as f32 / 16.0 * 4.2;
+                    c + Vec2::new(a.cos(), a.sin()) * 8.0
+                })
+                .collect();
+            p.add(egui::Shape::line(pts, Stroke::new(2.5_f32, ACCENT)));
+        }
+        Dot::Pending => {
+            p.circle_stroke(c, 8.0, Stroke::new(1.5_f32, FAINT));
+        }
+    }
+}
+
+fn check(p: &egui::Painter, c: egui::Pos2, r: f32, col: egui::Color32, w: f32) {
+    let pts = vec![c + Vec2::new(-0.45 * r, 0.02 * r), c + Vec2::new(-0.12 * r, 0.35 * r), c + Vec2::new(0.48 * r, -0.32 * r)];
+    p.add(egui::Shape::line(pts, Stroke::new(w, col)));
+}
+
+/// Big check mark that pops in.
+fn success_badge(ui: &mut egui::Ui, age: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(84.0), Sense::hover());
+    let p = ui.painter();
+    let x = (age / 0.5).clamp(0.0, 1.0);
+    // ease-out-back: overshoots a little, then settles
+    let s = 1.0 + 2.2 * (x - 1.0).powi(3) + 1.2 * (x - 1.0).powi(2);
+    let c = rect.center();
+    let ring = 40.0 * (0.6 + 0.4 * x);
+    p.circle_filled(c, ring, ACCENT_BG.gamma_multiply(0.9 * x));
+    p.circle_filled(c, 30.0 * s, ACCENT);
+    if x > 0.35 {
+        check(p, c, 30.0 * s, ON_ACCENT, 5.0);
+    }
+}
+
+fn failure_badge(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(84.0), Sense::hover());
+    let p = ui.painter();
+    let c = rect.center();
+    p.circle_filled(c, 40.0, DANGER.gamma_multiply(0.18));
+    p.circle_filled(c, 30.0, DANGER);
+    let s = Stroke::new(5.0_f32, ON_ACCENT);
+    p.line_segment([c + Vec2::new(0.0, -13.0), c + Vec2::new(0.0, 5.0)], s);
+    p.circle_filled(c + Vec2::new(0.0, 14.0), 3.2, ON_ACCENT);
+}
+
+/// A short, tasteful confetti burst from the top of the dialog.
+fn confetti(ctx: &egui::Context, win: Rect, age: f32) {
+    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("confetti")));
+    let origin = egui::pos2(win.center().x, win.min.y + 70.0);
+    let colors = [
+        ACCENT,
+        ACCENT_HI,
+        TEXT,
+        egui::Color32::from_rgb(120, 190, 170),
+        egui::Color32::from_rgb(222, 128, 148),
+        egui::Color32::from_rgb(140, 160, 230),
+    ];
+    let rnd = |i: usize, k: f32| ((i as f32 * 12.9898 + k * 78.233).sin() * 43758.547).fract().abs();
+    let fade = (1.0 - (age - 2.0).max(0.0) / 0.8).clamp(0.0, 1.0);
+    for i in 0..80 {
+        let ang = (-90.0 + (rnd(i, 1.0) - 0.5) * 140.0).to_radians();
+        let speed = 260.0 + rnd(i, 2.0) * 340.0;
+        let v = Vec2::new(ang.cos(), ang.sin()) * speed;
+        let drag = 1.0 - (-age * 1.6).exp();
+        let pos = origin + v * drag / 1.6 + Vec2::new((age * 3.0 + i as f32).sin() * 12.0, 0.5 * 520.0 * age * age * 0.6);
+        let rot = age * (4.0 + rnd(i, 3.0) * 8.0) + i as f32;
+        let (w, h) = (4.0 + rnd(i, 4.0) * 3.0, 7.0 + rnd(i, 5.0) * 5.0);
+        let (s, c) = rot.sin_cos();
+        let corner = |x: f32, y: f32| pos + Vec2::new(x * c - y * s, x * s + y * c);
+        let col = colors[i % colors.len()].gamma_multiply(fade);
+        p.add(egui::Shape::convex_polygon(
+            vec![corner(-w / 2.0, -h / 2.0), corner(w / 2.0, -h / 2.0), corner(w / 2.0, h / 2.0), corner(-w / 2.0, h / 2.0)],
+            col,
+            Stroke::NONE,
+        ));
+    }
 }

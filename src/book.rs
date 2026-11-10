@@ -179,7 +179,12 @@ fn import_epub(path: &Path, stem: &str) -> Result<(Book, Option<Vec<u8>>)> {
         if text.chars().count() < 80 {
             continue;
         }
-        let first = text.lines().next().unwrap_or("").trim();
+        // first real line (skip picture placeholders such as "image")
+        let first = text
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.eq_ignore_ascii_case("image") && !l.eq_ignore_ascii_case("[image]"))
+            .unwrap_or("");
         let title = if !first.is_empty() && first.chars().count() <= 70 {
             first.to_string()
         } else {
