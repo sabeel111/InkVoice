@@ -1,6 +1,6 @@
 [package]
 name = "inkvoice"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Lightweight dark-mode ebook reader that turns EPUB/PDF books into audiobooks with on-device voices"
 repository = "https://github.com/sabeel111/InkVoice"
