@@ -10,12 +10,12 @@
   <meta property="og:image" content="media/og.jpg">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="theme-color" content="#15120e">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="media/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="media/icon-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -38,6 +38,11 @@
     <!-- Hero: the product's core moment, live -->
     <section class="hero wrap">
       <h1>Books that read themselves.</h1>
+      <p class="lede">InkVoice turns your EPUB and PDF books into audiobooks, right on your own computer. No account, no cloud, no subscription.</p>
+      <div class="get">
+        <a class="btn btn-primary" id="cta" href="#download">Download InkVoice</a>
+        <p class="get-meta"><span id="cta-meta">Free for Windows and Linux</span>. <a href="#download">Other downloads</a></p>
+      </div>
 
       <figure class="demo" aria-labelledby="demo-caption">
         <blockquote class="demo-text" id="demo-text" lang="en">
@@ -49,21 +54,13 @@
             <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
             <span class="listen-label">Listen</span>
           </button>
-          <span class="demo-note">The opening line of <cite>Pride and Prejudice</cite>, read by InkVoice on an ordinary laptop.</span>
+          <span class="demo-note">The opening of <cite>Pride and Prejudice</cite>, read by InkVoice on an ordinary laptop.</span>
         </figcaption>
         <audio id="demo-audio" preload="none">
           <source src="media/hero.opus" type="audio/ogg; codecs=opus">
           <source src="media/hero.m4a" type="audio/mp4">
         </audio>
       </figure>
-
-      <div class="pitch">
-        <p class="lede">InkVoice turns your EPUB and PDF books into audiobooks, right on your own computer. No account, no cloud, no subscription.</p>
-        <div class="get">
-          <a class="btn btn-primary" id="cta" href="#download">Download InkVoice</a>
-          <p class="get-meta"><span id="cta-meta">Free for Windows and Linux</span>. <a href="#download">Other ways to install</a></p>
-        </div>
-      </div>
     </section>
 
     <!-- The app -->
@@ -128,6 +125,7 @@
     <!-- FAQ -->
     <section class="faq wrap" id="faq">
       <h2>Questions</h2>
+      <div class="faq-list">
       <details>
         <summary>Is InkVoice free?</summary>
         <p>Yes. InkVoice is open source under the MIT license, with no ads and no paid tier. The voices are free too; Underdog Woof may only be used for non-commercial purposes.</p>
@@ -156,12 +154,13 @@
         <summary>How do I uninstall it?</summary>
         <p>On Windows, remove it in <em>Settings, Apps</em> like any other program. On Linux, run <code>./install.sh --uninstall</code> from the downloaded archive. Your books and voices are kept in their own folder, so you can keep them or delete them.</p>
       </details>
+      </div>
     </section>
   </main>
 
   <footer class="foot wrap">
-    <p><img src="media/icon.svg" alt="" width="20" height="20"> InkVoice is open source. <a href="https://github.com/sabeel111/InkVoice">See the code on GitHub</a>.</p>
-    <p class="small">Sample text from <cite>Pride and Prejudice</cite> by Jane Austen, in the public domain. Voices: Kokoro and Phonon (Apache-2.0), Underdog Woof (non-commercial).</p>
+    <a class="brand" href="./"><img src="media/icon.svg" alt="" width="22" height="22"> InkVoice</a>
+    <p>Open source under the MIT license. <a href="https://github.com/sabeel111/InkVoice">Code on GitHub</a>. Sample text from <cite>Pride and Prejudice</cite> (public domain). Voices: Kokoro and Phonon (Apache-2.0), Underdog Woof (non-commercial).</p>
   </footer>
 
   <script src="app.js" defer></script>
