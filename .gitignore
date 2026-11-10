@@ -1,0 +1,8 @@
+# build output
+/target
+# local listening tests / generated audio
+/samples
+*.wav
+*.pcm
+__pycache__/
+*.pyc

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=InkVoice
+GenericName=Ebook reader & audiobook maker
+Comment=Read EPUB/PDF books and listen to them with on-device voices
+Exec=bookreader %f
+Icon=accessories-ebook-reader
+Terminal=false
+Categories=Office;Viewer;AudioVideo;
+MimeType=application/epub+zip;application/pdf;
+Keywords=ebook;epub;pdf;audiobook;tts;
+StartupWMClass=bookreader
